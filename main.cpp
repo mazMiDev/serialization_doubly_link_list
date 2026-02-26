@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <vector>
 #include <queue>
 #include <cstdint>
 #include <stdexcept>
@@ -34,10 +35,10 @@ void FreeList(ListNode *head)
 // Сериализация списка в бинарный файл
 void Serialize(ListNode *head)
 {
-    ofstream out("outfile.out", std::ios::binary);
+    ofstream out("outlet.out", std::ios::binary);
     if (!out)
     {
-        throw runtime_error("Cannot open outfile.out");
+        throw runtime_error("Cannot open outlet.out");
     }
 
     // Собираем узлы в вектор для индексации
@@ -73,10 +74,10 @@ void Serialize(ListNode *head)
 // Десериализация
 void Deserialize(ListNode *&head)
 {
-    ifstream in("outfile.out", std::ios::binary);
+    ifstream in("outlet.out", std::ios::binary);
     if (!in)
     {
-        throw runtime_error("Cannot open outfile.out");
+        throw runtime_error("Cannot open outlet.out");
     }
 
     // чтение количества узлов списка
@@ -86,19 +87,28 @@ void Deserialize(ListNode *&head)
         throw runtime_error("Failed to read node count");
 
     // формирование списка
-    head = new ListNode;
-    ListNode *pNode = head;
-    std::unordered_map<uint32_t, ListNode *> indexMap;
-    indexMap[0] = head;
-    for (uint32_t i = 1; i < nodeCount; ++i)
+    if (nodeCount == 0)
     {
-        pNode->next = new ListNode;
-        pNode->next->prev = pNode;
-        pNode = pNode->next;
-        indexMap[i] = pNode;
+        head = nullptr;
+        return;
     }
 
-    pNode = head;
+    std::vector<ListNode *> nodes(nodeCount);
+    for (uint32_t i = 0; i < nodeCount; ++i)
+    {
+        if (i == 0)
+        {
+            nodes[0] = new ListNode;
+            head = nodes[0];
+        }
+        else
+        {
+            nodes[i] = new ListNode;
+            nodes[i]->prev = nodes[i - 1];
+            nodes[i - 1]->next = nodes[i];
+        }
+    }
+
     // заполнение списка
     for (uint32_t i = 0; i < nodeCount; ++i)
     {
@@ -114,7 +124,7 @@ void Deserialize(ListNode *&head)
         in.read(&data[0], len);
         if (!in)
             throw runtime_error("Failed to read string data");
-        pNode->data = data;
+        nodes[i]->data = data;
 
         // чтение rand
         int32_t randInd = 0;
@@ -122,13 +132,12 @@ void Deserialize(ListNode *&head)
         if (!in)
             throw runtime_error("Failed to read rand index");
 
-        if (randInd < -1 || randInd >= static_cast<int32_t>(nodeCount))
+        if (randInd < -1 || randInd >= (int32_t)(nodeCount))
             throw runtime_error("Invalid rand index");
         if (randInd != -1)
         {
-            pNode->rand = indexMap[randInd];
+            nodes[i]->rand = nodes[randInd];
         }
-        pNode = pNode->next;
     }
 }
 
@@ -158,19 +167,20 @@ int strParser(string &str)
 
 int main()
 {
-
+    ListNode *head = nullptr, *deHead = nullptr;
     try
     {
+
         ifstream in("inlet.in");
         if (!in.is_open())
         {
             throw runtime_error("Cannot open inlet.in: this file must be located in same directory.");
         }
 
-        ListNode *head = new ListNode;
-        ListNode *pNode = head;
+        ListNode *pNode = nullptr;
         uint32_t listNodeCount = 0;
         std::queue<int> randIndexes;
+        std::vector<ListNode *> nodes;
 
         string str;
         while (listNodeCount < 1000000 && std::getline(in, str))
@@ -178,7 +188,9 @@ int main()
             randIndexes.push(strParser(str));
             if (listNodeCount == 0)
             {
+                head = new ListNode;
                 head->data = str;
+                pNode = head;
             }
             else
             {
@@ -187,21 +199,25 @@ int main()
                 pNode = pNode->next;
                 pNode->data = str;
             }
+            nodes.push_back(pNode);
             listNodeCount++;
         }
         in.close();
+
         pNode = head;
 
         while (!randIndexes.empty())
         {
-            ListNode *pRandNode = head;
             int ind = randIndexes.front();
             randIndexes.pop();
-            if (ind == -1)
-                continue;
-            for (; ind != 0 && pRandNode != nullptr; ind--)
-                pRandNode = pRandNode->next;
-            pNode->rand = pRandNode;
+            if (ind < -1)
+                throw runtime_error("Incorrect rand-code: rand-code is less than -1.");
+            else if (ind >= static_cast<int>(listNodeCount))
+                throw runtime_error("Incorrect rand-code: rand-code is greater than or equal to the number of nodes in the list.");
+            else if (ind != -1)
+            {
+                pNode->rand = nodes[ind];
+            }
             pNode = pNode->next;
         }
 
@@ -210,7 +226,6 @@ int main()
         std::cout << "Serialization completed successfully." << std::endl;
 
         // Десериализация
-        ListNode *deHead;
         Deserialize(deHead);
         ListNode *pNodeDe = deHead;
         pNode = head;
@@ -219,20 +234,30 @@ int main()
         {
             if (pNode->data != pNodeDe->data)
                 throw runtime_error("Deserialization completed failed.");
+            if ((pNode->rand == nullptr && pNodeDe->rand != nullptr) || (pNode->rand != nullptr && pNodeDe->rand == nullptr))
+                throw runtime_error("Deserialization completed failed: rand-code is incorrect.");
+            else if (pNode->rand != nullptr && pNodeDe->rand != nullptr && pNode->rand->data != pNodeDe->rand->data)
+                throw runtime_error("Deserialization completed failed: rand-code is incorrect.");
             pNode = pNode->next;
             pNodeDe = pNodeDe->next;
         }
+        if (pNode != nullptr || pNodeDe != nullptr)
+            throw runtime_error("Deserialization completed failed: the number of nodes in the list is incorrect.");
         std::cout << "Deserialization completed successfully." << std::endl;
 
-        // Освобождение памяти
-        FreeList(head);
-        FreeList(deHead);
-
-        return 0;
+        
     }
     catch (const std::exception &e)
     {
+        // Освобождение памяти
+        FreeList(head);
+        FreeList(deHead);
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
+
+    // Освобождение памяти
+    FreeList(head);
+    FreeList(deHead);
+    return 0;
 }
