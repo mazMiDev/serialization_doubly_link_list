@@ -3,12 +3,13 @@
 #include <string>
 #include <queue>
 #include <cstdint>
-// #include <stdexcept>
+#include <stdexcept>
 #include <unordered_map>
 
 using std::cerr;
 using std::ifstream;
 using std::ofstream;
+using std::runtime_error;
 using std::string;
 
 struct ListNode
@@ -36,7 +37,7 @@ void Serialize(ListNode *head)
     ofstream out("outfile.out", std::ios::binary);
     if (!out)
     {
-        throw std::runtime_error("Cannot open outfile.out");
+        throw runtime_error("Cannot open outfile.out");
     }
 
     // Собираем узлы в вектор для индексации
@@ -46,7 +47,7 @@ void Serialize(ListNode *head)
         nodes.push_back(cur);
     }
     uint32_t nodeCount = nodes.size();
-    out.write((const char *)(&nodeCount), sizeof(int));
+    out.write((const char *)(&nodeCount), sizeof(nodeCount));
 
     // Строим отображение указатель -> индекс для быстрого поиска rand
     std::unordered_map<ListNode *, uint32_t> indexMap;
@@ -70,19 +71,19 @@ void Serialize(ListNode *head)
 }
 
 // Десериализация
-void Deserialize(ListNode *head)
+void Deserialize(ListNode *&head)
 {
-    std::ifstream in("outfile.out", std::ios::binary);
+    ifstream in("outfile.out", std::ios::binary);
     if (!in)
     {
-        throw std::runtime_error("Cannot open outfile.out");
+        throw runtime_error("Cannot open outfile.out");
     }
 
     // чтение количества узлов списка
     uint32_t nodeCount = 0;
     in.read((char *)(&nodeCount), sizeof(nodeCount));
     if (!in)
-        throw std::runtime_error("Failed to read node count");
+        throw runtime_error("Failed to read node count");
 
     // формирование списка
     head = new ListNode;
@@ -105,24 +106,24 @@ void Deserialize(ListNode *head)
         uint32_t len = 0;
         in.read((char *)(&len), sizeof(len));
         if (!in)
-            throw std::runtime_error("Failed to read string length");
+            throw runtime_error("Failed to read string length");
 
         // чтение строки данных
         string data;
         data.resize(len);
         in.read(&data[0], len);
         if (!in)
-            throw std::runtime_error("Failed to read string data");
+            throw runtime_error("Failed to read string data");
         pNode->data = data;
 
         // чтение rand
         int32_t randInd = 0;
         in.read((char *)(&randInd), sizeof(randInd));
         if (!in)
-            throw std::runtime_error("Failed to read rand index");
+            throw runtime_error("Failed to read rand index");
 
         if (randInd < -1 || randInd >= static_cast<int32_t>(nodeCount))
-            throw std::runtime_error("Invalid rand index");
+            throw runtime_error("Invalid rand index");
         if (randInd != -1)
         {
             pNode->rand = indexMap[randInd];
@@ -141,31 +142,29 @@ int strParser(string &str)
     size_t sep = str.find_last_of(';');
     if (sep == string::npos)
     {
-        throw std::runtime_error("Invalid line \"" + str + "\": no separator ';'");
+        throw runtime_error("Invalid line \"" + str + "\": no separator ';'");
     }
-    string data_part = str.substr(0, sep);
     string rand_part = str.substr(sep + 1);
+    str = str.substr(0, sep);
     try
     {
         return std::stoi(rand_part);
     }
     catch (const std::exception &)
     {
-        throw std::runtime_error("Invalid rand index in line: " + rand_part);
+        throw runtime_error("Invalid rand index in line: " + rand_part);
     }
 }
 
 int main()
 {
-    std::ifstream in("inlet.in");
 
     try
     {
-        const string output_filename = "outlet.out";
-
+        ifstream in("inlet.in");
         if (!in.is_open())
         {
-            throw std::runtime_error("Cannot open inlet.in: this file must be located in same directory.");
+            throw runtime_error("Cannot open inlet.in: this file must be located in same directory.");
         }
 
         ListNode *head = new ListNode;
@@ -190,7 +189,7 @@ int main()
             }
             listNodeCount++;
         }
-
+        in.close();
         pNode = head;
 
         while (!randIndexes.empty())
@@ -208,16 +207,31 @@ int main()
 
         // Сериализация
         Serialize(head);
+        std::cout << "Serialization completed successfully." << std::endl;
+
+        // Десериализация
+        ListNode *deHead;
+        Deserialize(deHead);
+        ListNode *pNodeDe = deHead;
+        pNode = head;
+
+        while (pNode != nullptr && pNodeDe != nullptr)
+        {
+            if (pNode->data != pNodeDe->data)
+                throw runtime_error("Deserialization completed failed.");
+            pNode = pNode->next;
+            pNodeDe = pNodeDe->next;
+        }
+        std::cout << "Deserialization completed successfully." << std::endl;
 
         // Освобождение памяти
         FreeList(head);
+        FreeList(deHead);
 
-        std::cout << "Serialization completed successfully." << std::endl;
         return 0;
     }
     catch (const std::exception &e)
     {
-        in.close();
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
